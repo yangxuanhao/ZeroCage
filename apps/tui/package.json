@@ -1,0 +1,28 @@
+{
+  "name": "@deepseek-ai/zerocage",
+  "description": "ZeroCage: the terminal distribution of DeepSeek Harness — one command, full screen, no browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "zerocage": "lib/bin.js"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "lib/bin.js",
+    "src"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/dsh": "workspace:*",
+    "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-base": "workspace:*",
+    "@deepseek-ai/dsh-tui-app": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-app-boot": "workspace:*"
+  }
+}

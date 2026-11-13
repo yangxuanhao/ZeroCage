@@ -1,0 +1,88 @@
+# The ZeroCage terminal bundle patch: the fullscreen TUI surface over dsh-base.
+# Applied after dsh-base's insert; rows here override base rows by id, with the
+# profile's own cordis.patch.yml and any --patch overlays still to come.
+#
+# A patch replaces the targeted row's whole `config`, so each row below restates
+# every key it owns.
+#
+# Three groups:
+#   1. the surface's own values (identity, gates off),
+#   2. rows the terminal does not need (RPC type graph, HMR tree write-back),
+#   3. the terminal rows (flag provider, then the host that reads it).
+
+# ── surface values ──────────────────────────────────────────────────────────
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are ZeroCage, a coding agent powered by the {{model}} model, running
+      in a terminal. Work directly: read, change, run, and verify. Answer first,
+      explain after.
+
+# Every gate is off by default and there is no user switch: the terminal owns
+# the machine it runs on, and a prompt is an interruption the operator did not
+# ask for. Rewind and the session log remain the recovery path.
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.cwd()
+
+- id: approval
+  config:
+    policy: never
+
+- id: permission
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+
+# ── rows this surface does not run ──────────────────────────────────────────
+
+# The Typert type graph and its gateway exist for the browser transport. A
+# single-process terminal has no remote peer, and the rows would require the
+# built `lib/typert.host.js` artifacts the source launch never produces.
+- id: typert
+  disabled: true
+
+- id: typert-loader
+  disabled: true
+
+- id: typert-gateway
+  disabled: true
+
+- id: remote-access
+  disabled: true
+
+# Profile-tree write-back belongs to an interactive config editor; the terminal
+# boots one composition per process and never reloads it.
+- id: hmr
+  disabled: true
+
+# A terminal turn should spend its tokens on the task. Titles still come from
+# the local truncation fallback (`session-title`), never from a second request.
+- id: session-title-llm
+  disabled: true
+
+# ── the terminal rows ───────────────────────────────────────────────────────
+
+- insert:
+    # Parses this app's flags from `cmdlineArgs` and publishes `tuiStartup`;
+    # the host row below injects it, so Loader orders the two.
+    - id: tui-startup
+      name: '@deepseek-ai/dsh-tui-host/startup'
+
+    - id: tui-host
+      name: '@deepseek-ai/dsh-tui-host'
+      inject: [tuiStartup]
+      config:
+        resume: !!js ctx.tuiStartup?.resume
+        model: !!js ctx.tuiStartup?.model
+        plain: !!js ctx.tuiStartup?.plain ?? false

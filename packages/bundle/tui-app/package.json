@@ -1,0 +1,38 @@
+{
+  "name": "@deepseek-ai/dsh-tui-app",
+  "description": "The ZeroCage terminal bundle: the TUI patch layer over dsh-base, mounting the in-process terminal host and turning the harness's default gates off",
+  "version": "0.2.2-rc.3",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "src"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": ["./cordis.patch.yml"]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tui-host": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  }
+}
