@@ -21,8 +21,9 @@ describe('parseTuiArgs', () => {
     expect(parseTuiArgs(['--patch', 'extra.yml'])).toEqual({ resume: undefined, model: undefined, plain: false, help: false })
   })
 
-  it('treats a flag followed by another flag as a missing value', () => {
-    expect(parseTuiArgs(['--resume', '--plain']).resume).toBeUndefined()
+  it('fails loud when a flag lost its value instead of opening a fresh session', () => {
+    expect(() => parseTuiArgs(['--resume', '--plain'])).toThrow(/--resume/)
+    expect(() => parseTuiArgs(['--model'])).toThrow(/--model/)
   })
 
   it('documents every flag in the usage text', () => {

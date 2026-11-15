@@ -11,14 +11,16 @@ import type { DiffLine } from '@deepseek-ai/dsh-tui-kit'
 /** How many diff lines a card keeps before summarizing the rest. */
 const MAX_DIFF_LINES = 120
 
+/** A whole-file write is not a reviewable diff; keep a readable prefix. */
+const MAX_WRITE_LINES = 40
+
 /** Tool names whose arguments carry an exact old/new text pair. */
 const EDIT_TOOL_NAMES = new Set(['edit', 'write', 'str_replace_editor', 'apply_patch'])
 
 /** Read a string field from parsed JSON without asserting its type. */
 function stringField(value: unknown, key: string): string | undefined {
   if (typeof value !== 'object' || value === null) return undefined
-  const record: Record<string, unknown> = value
-  const field = record[key]
+  const field = Reflect.get(value, key)
   return typeof field === 'string' ? field : undefined
 }
 
@@ -61,36 +63,49 @@ export function diffFromArguments(toolName: string, argsJson: string): readonly 
     return cap(lines)
   }
   if (whole !== undefined) {
-    for (const line of splitLines(whole)) lines.push({ kind: 'add', text: line })
+    const written = splitLines(whole)
+    const kept = written.slice(0, MAX_WRITE_LINES)
+    const rendered: DiffLine[] = kept.map(line => ({ kind: 'add' as const, text: line }))
+    if (written.length > kept.length) {
+      rendered.push({ kind: 'hunk', text: `… ${String(written.length - kept.length)} more lines written` })
+    }
+    return rendered
   }
   return cap(lines)
 }
 
 /**
- * Build a diff from a unified diff echoed in a tool result.
+ * Build a diff from a unified diff echoed in a tool result. Ordinary output that
+ * merely mentions `@@` or `+++` (log lines, docs) carries no hunk, so a hunk line
+ * plus at least one change line is required before anything is coloured.
  * @param output - the tool result text.
  * @returns diff lines, or an empty list when the text carries no diff hunks.
  */
 export function diffFromOutput(output: string): readonly DiffLine[] {
-  if (!output.includes('@@') && !output.includes('+++ ')) return []
-  const lines: DiffLine[] = []
-  let seenHeader = false
-  for (const line of output.split('\n')) {
-    if (line.startsWith('@@')) {
-      seenHeader = true
-      lines.push({ kind: 'hunk', text: line })
+  const lines = output.split('\n')
+  if (!lines.some(line => line.startsWith('@@'))) return []
+  const parsed: DiffLine[] = []
+  let seenHunk = false
+  let changes = 0
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) {
+      seenHunk = true
+      parsed.push({ kind: 'hunk', text: line })
       continue
     }
-    if (line.startsWith('+++') || line.startsWith('---')) {
-      seenHeader = true
-      continue
+    if (line.startsWith('+++') || line.startsWith('---')) continue
+    if (!seenHunk) continue
+    if (line.startsWith('+')) {
+      changes++
+      parsed.push({ kind: 'add', text: line.slice(1) })
+    } else if (line.startsWith('-')) {
+      changes++
+      parsed.push({ kind: 'del', text: line.slice(1) })
+    } else if (line.startsWith(' ') || line === '') {
+      parsed.push({ kind: 'context', text: line.slice(1) })
     }
-    if (!seenHeader) continue
-    if (line.startsWith('+')) lines.push({ kind: 'add', text: line.slice(1) })
-    else if (line.startsWith('-')) lines.push({ kind: 'del', text: line.slice(1) })
-    else if (line.startsWith(' ') || line === '') lines.push({ kind: 'context', text: line.slice(1) })
   }
-  return cap(lines)
+  return changes === 0 ? [] : cap(parsed)
 }
 
 /**

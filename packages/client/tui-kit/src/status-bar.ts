@@ -1,7 +1,6 @@
 /**
- * The status bar and key-hint footer: the two fixed rows above and below the
- * editor. Both read the same snapshot the transcript does, so the numbers an
- * operator sees always come from the state the host just published.
+ * ZeroCage Status Bar & Footer:
+ * Minimal, proportional, no bulky grey bands.
  * @module @deepseek-ai/dsh-tui-kit/status-bar
  */
 
@@ -10,73 +9,99 @@ import { truncateToWidth, visibleWidth } from '@deepseek-ai/pi-tui'
 import type { Theme } from './theme.ts'
 import type { TuiViewState } from './types.ts'
 
-/** Compact integer formatting: 1234 → 1.2k, 1200000 → 1.2M. */
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
 export function formatCount(value: number): string {
   if (value < 1000) return String(Math.max(0, Math.round(value)))
   if (value < 1_000_000) return `${(value / 1000).toFixed(1)}k`
   return `${(value / 1_000_000).toFixed(1)}M`
 }
 
-/** Percentage of the context window in use, clamped to 0-100. */
 export function contextPercent(state: TuiViewState): number {
   if (state.tokens.contextWindow <= 0) return 0
   const ratio = state.tokens.contextUsed / state.tokens.contextWindow
   return Math.max(0, Math.min(100, Math.round(ratio * 100)))
 }
 
-/** The word shown for the conversation status. */
-function statusWord(state: TuiViewState): string {
-  switch (state.status) {
-    case 'starting': return 'starting'
-    case 'idle': return 'idle'
-    case 'running': return 'working'
-    case 'waiting': return 'waiting for you'
-    case 'error': return 'error'
-  }
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  if (seconds < 60) return `${String(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${String(minutes)}m${String(seconds % 60).padStart(2, '0')}s`
 }
 
-/** The status text color for the current status. */
-function statusStyle(state: TuiViewState, theme: Theme): (text: string) => string {
-  switch (state.status) {
-    case 'running': return theme.accent
-    case 'waiting': return theme.warn
-    case 'error': return theme.error
-    default: return theme.muted
-  }
+export interface StatusClock {
+  runningSince: number | undefined
+}
+
+function splitModel(model: string): { name: string; provider: string } {
+  const slash = model.lastIndexOf('/')
+  if (slash <= 0) return { name: model, provider: '' }
+  return { name: model.slice(slash + 1), provider: model.slice(0, slash) }
 }
 
 /**
- * Build the status bar.
- * @param options - state reader and theme.
- * @returns one-line component, truncated rather than wrapped at narrow widths.
+ * Minimal status line rendered directly above the composer:
+ * Status dot + status word + model + tool on left; context usage on right.
  */
-export function createStatusBar(options: { readonly getState: () => TuiViewState; readonly theme: Theme }): Component {
+export function createStatusBar(options: {
+  readonly getState: () => TuiViewState
+  readonly theme: Theme
+  readonly clock?: StatusClock
+}): Component {
   const { theme } = options
   return {
     render(width: number): string[] {
       const state = options.getState()
-      const parts: string[] = [theme.bold('zerocage'), theme.assistant(state.model)]
-      parts.push(`${statusStyle(state, theme)(statusWord(state))}`)
-      if (state.currentTool !== undefined) parts.push(theme.tool(state.currentTool))
-      const used = contextPercent(state)
-      const context = state.tokens.contextWindow > 0
-        ? `ctx ${String(used)}% · ${formatCount(state.tokens.contextUsed)}/${formatCount(state.tokens.contextWindow)}`
-        : `ctx ${formatCount(state.tokens.contextUsed)}`
-      parts.push(theme.muted(context))
-      parts.push(theme.muted(`in ${formatCount(state.tokens.input)} · out ${formatCount(state.tokens.output)}`))
-      const line = parts.join(theme.muted(' · '))
-      return [truncateToWidth(line, Math.max(1, width), '…')]
+      const busy = state.status === 'running' || state.status === 'waiting'
+      const since = options.clock?.runningSince
+      const elapsed = busy && since !== undefined ? ` ${formatElapsed(Date.now() - since)}` : ''
+
+      const leftParts: string[] = []
+      if (state.status === 'running') {
+        const frame = SPINNER[Math.floor(Date.now() / 110) % SPINNER.length] ?? '⠋'
+        leftParts.push(theme.accent(`${frame} working${elapsed}`))
+      } else if (state.status === 'waiting') {
+        leftParts.push(theme.warn(`● waiting${elapsed}`))
+      } else if (state.status === 'error') {
+        leftParts.push(theme.error('▲ error'))
+      } else {
+        leftParts.push(theme.accent('● idle'))
+      }
+
+      if (state.model === '') {
+        leftParts.push(theme.muted('(connecting)'))
+      } else {
+        const { name, provider } = splitModel(state.model)
+        leftParts.push(`${theme.strong(name)}${provider === '' ? '' : ` ${theme.faint(provider)}`}`)
+      }
+      if (state.currentTool !== undefined && width >= 70) {
+        leftParts.push(theme.muted(state.currentTool))
+      }
+      const left = leftParts.join(theme.faint('  ·  '))
+
+      const rightParts: string[] = []
+      if (state.tokens.contextWindow > 0) {
+        rightParts.push(`${formatCount(state.tokens.contextUsed)} (${String(contextPercent(state))}%)`)
+      } else if (state.tokens.contextUsed > 0) {
+        rightParts.push(formatCount(state.tokens.contextUsed))
+      }
+      const right = rightParts.length > 0 ? theme.muted(rightParts.join('  ·  ')) : ''
+
+      const leftW = visibleWidth(left)
+      const rightW = visibleWidth(right)
+      const pad = width - leftW - rightW
+      if (pad >= 2) {
+        return [truncateToWidth(`${left}${' '.repeat(pad)}${right}`, Math.max(1, width), '…')]
+      }
+      return [truncateToWidth(left, Math.max(1, width), '…')]
     },
-    invalidate(): void {
-      // Nothing cached: the line is rebuilt from the snapshot every frame.
-    },
+    invalidate(): void {},
   }
 }
 
 /**
- * Build the key-hint footer.
- * @param options - state reader, theme, and the hints the host wants shown.
- * @returns one-line component.
+ * Minimal footer: working directory on left, hotkeys on right.
  */
 export function createFooter(options: {
   readonly getState: () => TuiViewState
@@ -86,25 +111,27 @@ export function createFooter(options: {
   return {
     render(width: number): string[] {
       const state = options.getState()
-      const hints: string[] = []
-      if (state.hint !== undefined) hints.push(state.hint)
-      if (state.queued.length > 0) hints.push(`${String(state.queued.length)} queued`)
-      hints.push('[enter] send', '[ctrl+j] newline', '[ctrl+c] stop', '[ctrl+d] exit', '[pgup/pgdn] scroll')
-      const line = theme.muted(truncateToWidth(hints.join('  '), Math.max(1, width), '…'))
-      return [line]
+      const leftParts: string[] = []
+      if (state.cwd !== '') leftParts.push(shortenPath(state.cwd, Math.max(16, Math.floor(width * 0.45))))
+      if (state.queued.length > 0) leftParts.push(theme.warn(`${String(state.queued.length)} queued`))
+      const left = theme.muted(leftParts.join('  ·  '))
+
+      const rightParts: string[] = []
+      rightParts.push(`${theme.strong('ctrl+p')} ${theme.muted('commands')}`, `${theme.faint('ctrl+d exit')}`)
+      const right = rightParts.join('   ')
+
+      const leftW = visibleWidth(left)
+      const rightW = visibleWidth(right)
+      const pad = width - leftW - rightW
+      if (pad >= 2) {
+        return [truncateToWidth(`${left}${' '.repeat(pad)}${right}`, Math.max(1, width), '…')]
+      }
+      return [truncateToWidth(left, Math.max(1, width), '…')]
     },
-    invalidate(): void {
-      // Stateless.
-    },
+    invalidate(): void {},
   }
 }
 
-/**
- * Truncate the middle of a long working directory so the tail (the project name) survives.
- * @param cwd - absolute working directory.
- * @param width - available columns.
- * @returns the display form.
- */
 export function shortenPath(cwd: string, width: number): string {
   if (visibleWidth(cwd) <= width) return cwd
   const tail = cwd.length > width - 1 ? cwd.slice(cwd.length - (width - 1)) : cwd

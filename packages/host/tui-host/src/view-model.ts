@@ -62,10 +62,14 @@ export const initialViewState: TuiViewState = {
   currentTool: undefined,
   lastError: undefined,
   hint: undefined,
+  expandedIds: [],
 }
 
 /** Transcript growth cap; older blocks are dropped from the head. */
-const MAX_BLOCKS = 400
+const MAX_BLOCKS = 2000
+
+/** Longest session title the status bar shows, derived from the first prompt. */
+const MAX_TITLE_CHARS = 48
 
 /** Id of the assistant block currently streaming. */
 interface StreamCursor {
@@ -85,6 +89,8 @@ export interface ViewModel {
   readonly state: TuiViewState
   /** Apply one input and return the new snapshot. */
   dispatch(input: ViewInput): TuiViewState
+  /** Open or close one collapsed block, returning the new snapshot. */
+  toggleExpanded(id: string): TuiViewState
 }
 
 /** Trim the head of the transcript once it exceeds the cap. */
@@ -129,6 +135,14 @@ export function createViewModel(): ViewModel {
       fold.view = reduce(fold, input)
       return fold.view
     },
+    toggleExpanded(id: string): TuiViewState {
+      const open = fold.view.expandedIds.includes(id)
+      fold.view = {
+        ...fold.view,
+        expandedIds: open ? fold.view.expandedIds.filter(value => value !== id) : [...fold.view.expandedIds, id],
+      }
+      return fold.view
+    },
   }
 }
 
@@ -152,8 +166,16 @@ function reduce(state: FoldState, input: ViewInput): TuiViewState {
       return { ...view, hint: input.hint }
     case 'title':
       return { ...view, title: input.title }
-    case 'user':
-      return { ...view, blocks: trim([...view.blocks, { kind: 'user', id: `u${String(input.turn)}-${String(state.blockSeq++)}`, turn: input.turn, text: input.text }]) }
+    case 'user': {
+      const title = view.title === '' ? input.text.replace(/\s+/gu, ' ').slice(0, MAX_TITLE_CHARS) : view.title
+      return {
+        ...view,
+        title,
+        blocks: trim([...view.blocks, { kind: 'user', id: `u${String(input.turn)}-${String(state.blockSeq++)}`, turn: input.turn, text: input.text }]),
+        // The message reached the log, so it is no longer queued.
+        queued: [],
+      }
+    }
     case 'queued':
       return { ...view, queued: input.texts }
     case 'stream-start': {
@@ -191,6 +213,15 @@ function reduce(state: FoldState, input: ViewInput): TuiViewState {
       const open = openAssistant(state)
       state.cursor = undefined
       if (open === undefined) return view
+      // An attempt that produced no text leaves nothing to show; keeping the
+      // block would leave a bare header and a blinking cursor on screen.
+      if (open.text === '' && open.reasoning === '') {
+        return {
+          ...view,
+          blocks: view.blocks.filter(block => block.id !== open.id),
+          currentTool: undefined,
+        }
+      }
       const blocks = updateBlock(view.blocks, open.id, block => (block.kind === 'assistant' ? { ...block, streaming: false } : block))
       return { ...view, blocks, currentTool: undefined }
     }

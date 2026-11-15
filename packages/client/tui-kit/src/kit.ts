@@ -1,12 +1,16 @@
 /**
- * The terminal composition root: one fullscreen pi-tui renderer, a scrolling
- * transcript, a status bar, the multiline editor, and an overlay channel for
- * prompts. It owns terminal lifecycle only — every conversation fact comes from
- * the host through {@link TuiKitOptions.getState}.
+ * ZeroCage Kit Root:
+ * Refined vertical layout:
+ * - Header (2 rows: Brand & Hairline rule)
+ * - Scrollable transcript
+ * - Status Bar (1 row)
+ * - Editor (with fine hairline borders)
+ * - Footer (1 row)
  * @module @deepseek-ai/dsh-tui-kit/kit
  */
 
 import {
+  CombinedAutocompleteProvider,
   Editor,
   matchesKey,
   ProcessTerminal,
@@ -16,6 +20,7 @@ import {
   type EditorTheme,
   type OverlayHandle,
   type SelectListTheme,
+  type TuiMouseEvent,
 } from '@deepseek-ai/pi-tui'
 import { createChoicePrompt, type PromptOption } from './prompt.ts'
 import { createFooter, createStatusBar } from './status-bar.ts'
@@ -23,6 +28,7 @@ import { createTheme, detectColorDepth, type Theme } from './theme.ts'
 import { createTranscript } from './transcript.ts'
 import type {
   ApprovalPrompt,
+  GenericChoice,
   QuestionAnswerItem,
   QuestionPromptRequest,
   SessionChoice,
@@ -30,7 +36,10 @@ import type {
   TuiKitOptions,
 } from './types.ts'
 
-/** Editor theme derived from the kit theme; borders and menus share the palette. */
+const TICK_MS = 110
+const CTRL_C = '\x03'
+const CTRL_D = '\x04'
+
 function editorTheme(theme: Theme): EditorTheme {
   const selectList: SelectListTheme = {
     selectedPrefix: theme.accent,
@@ -39,31 +48,67 @@ function editorTheme(theme: Theme): EditorTheme {
     scrollInfo: theme.muted,
     noMatch: theme.warn,
   }
-  return { borderColor: theme.muted, selectList }
+  return { borderColor: theme.border, selectList }
 }
 
-/** Outcome of one overlay prompt is settled through its resolve callback. */
-
-/**
- * Build the terminal kit.
- * @param options - state reader, host callbacks, and rendering overrides.
- * @returns the kit the host drives; no terminal state is touched before {@link TuiKit.start}.
- */
 export function createTuiKit(options: TuiKitOptions): TuiKit {
   const theme = createTheme(options.colorDepth ?? detectColorDepth(process.env, process.stdout.isTTY === true))
   const terminal = options.terminal ?? new ProcessTerminal()
-  const tui = new TuiAltScreen(terminal, true, options.logDirectory, { mouse: true, copyOnSelect: true })
+  const mouseEnabled = process.env.ZEROCAGE_MOUSE !== '0'
+  const tui = new TuiAltScreen(terminal, true, options.logDirectory, { mouse: mouseEnabled, copyOnSelect: true })
+  const indeed = {
+    runningSince: undefined as number | undefined,
+  }
   const transcript = createTranscript({ getState: options.getState, theme })
   const scroll = new ScrollView(transcript, { follow: 'end', primary: true, overscroll: 'chain', scrollbar: 'auto' })
-  const status = createStatusBar({ getState: options.getState, theme })
+
+  let lastToggleAt = 0
+  scroll.handleMouse = (event: TuiMouseEvent) => {
+    if (event.button === 'left' && (event.type === 'press' || event.type === 'click')) {
+      const now = Date.now()
+      if (now - lastToggleAt < 250) return { handled: true }
+      const row = scroll.scrollTop + Math.max(0, event.y)
+      const id = transcript.blockAtRow(row)
+      if (id !== undefined) {
+        lastToggleAt = now
+        options.onToggleBlock?.(id)
+        return { handled: true, render: true }
+      }
+    }
+    return undefined
+  }
+
+  const status = createStatusBar({ getState: options.getState, theme, clock: indeed })
   const footer = createFooter({ getState: options.getState, theme })
   const editor = new Editor(tui, editorTheme(theme), { paddingX: 1 })
+
+  // Clean, thin hairline borders for the composer
+  editor.renderTopBorder = (width: number, hiddenLineCount: number): string => {
+    const border = hiddenLineCount > 0 ? `↑ ${String(hiddenLineCount)} more ` : ''
+    const line = border.length < width ? `${border}─`.padEnd(width, '─') : border
+    return theme.border(line)
+  }
+  editor.renderBottomBorder = (width: number, hiddenLineCount: number): string => {
+    const border = hiddenLineCount > 0 ? `↓ ${String(hiddenLineCount)} more ` : ''
+    const line = border.length < width ? `${border}─`.padEnd(width, '─') : border
+    return theme.border(line)
+  }
+
+  if (options.getCommands !== undefined) {
+    const commands = options.getCommands().map(command => ({ name: command.name, description: command.description }))
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(commands, options.completionRoot ?? process.cwd()))
+  }
+
+  let lastSubmitAt = 0
   editor.onSubmit = (text: string): void => {
     const trimmed = text.trim()
     if (trimmed === '') return
-    editor.addToHistory(trimmed)
+    lastSubmitAt = Date.now()
+    if (!trimmed.startsWith('/')) editor.addToHistory(trimmed)
+    scroll.scrollToEnd()
     options.onSubmit(trimmed)
   }
+
   const layout = new VStack([
     { component: scroll, basis: 0, grow: 1, shrink: 1, minSize: 1 },
     { component: status, basis: 'auto', grow: 0, shrink: 0, minSize: 1 },
@@ -76,17 +121,25 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
   let stopped = false
   let overlay: OverlayHandle | undefined
   let removeInputListener: (() => void) | undefined
+  let ticker: ReturnType<typeof setInterval> | undefined
+  let onResize: (() => void) | undefined
+  let lastInterruptAt = 0
+  let cancelPrompt: (() => void) | undefined
 
   const closeOverlay = (): void => {
     overlay?.hide()
     overlay = undefined
+    cancelPrompt = undefined
     tui.setFocus(editor)
     tui.requestRender()
   }
 
-  /** Show one overlay prompt and settle its promise from the prompt callback. */
+  const closeOverlaySettled = (): void => {
+    cancelPrompt?.()
+  }
+
   const runPrompt = <T>(
-    build: (settle: (value: T | undefined) => void) => { component: ReturnType<typeof createChoicePrompt> },
+    build: (settle: (value: T | undefined) => void) => { component: ReturnType<typeof createChoicePrompt>; maxHeight: number },
   ): Promise<T | undefined> => {
     return new Promise<T | undefined>(resolve => {
       closeOverlay()
@@ -97,9 +150,9 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
         closeOverlay()
         resolve(value)
       }
-      const { component } = build(finish)
-      // Non-capturing is wrong here: a prompt owns the keyboard while it is open.
-      overlay = tui.showOverlay(component, { anchor: 'center', width: '80%', maxHeight: '70%', margin: 1 })
+      const { component, maxHeight } = build(finish)
+      cancelPrompt = () => { finish(undefined) }
+      overlay = tui.showOverlay(component, { anchor: 'center', width: '80%', maxHeight, margin: 1 })
       tui.setFocus(component)
       tui.requestRender()
     })
@@ -109,16 +162,51 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
     start(): void {
       if (started || stopped) return
       started = true
-      // pi-tui's own start() drives the terminal's input and resize handlers;
-      // this listener sits in front of the focused component.
       removeInputListener = tui.addInputListener((data: string) => {
-        if (overlay !== undefined) return undefined
-        if (matchesKey(data, 'ctrl+c')) {
+        if (data === '\n') {
+          const justSubmitted = Date.now() - lastSubmitAt < 60
+          if (justSubmitted) return { consume: true }
+          return { data: '\r' }
+        }
+        if (matchesKey(data, 'ctrl+c') || data === CTRL_C) {
+          if (overlay !== undefined) {
+            closeOverlaySettled()
+            return { consume: true }
+          }
+          const text = editor.getText()
+          const state = options.getState()
+          if (text === '' && state.status !== 'running') {
+            const now = Date.now()
+            if (now - lastInterruptAt < 2000) {
+              options.onExit()
+              return { consume: true }
+            }
+            lastInterruptAt = now
+            options.onInterrupt()
+            return { consume: true }
+          }
           options.onInterrupt()
           return { consume: true }
         }
-        if (matchesKey(data, 'ctrl+d') && editor.getText() === '') {
+        if ((matchesKey(data, 'ctrl+d') || data === CTRL_D) && editor.getText() === '') {
           options.onExit()
+          return { consume: true }
+        }
+        if (overlay === undefined && matchesKey(data, 'ctrl+p') && options.getCommands !== undefined) {
+          const cmds = options.getCommands()
+          if (cmds.length > 0) {
+            void kit.pickChoice('命令面板', cmds.map(c => ({
+              value: c.name,
+              label: `/${c.name}`,
+              description: c.description,
+            }))).then(picked => {
+              if (picked !== undefined) options.onSubmit(`/${picked}`)
+            })
+            return { consume: true }
+          }
+        }
+        if (overlay !== undefined && matchesKey(data, 'escape')) {
+          closeOverlaySettled()
           return { consume: true }
         }
         return undefined
@@ -126,32 +214,47 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
       tui.start()
       tui.setFocus(editor)
       tui.requestRender()
+      onResize = (): void => {
+        setTimeout(() => { tui.renderNow(true) }, 30)
+      }
+      process.stdout.on('resize', onResize)
+      ticker = setInterval(() => {
+        const running = options.getState().status === 'running' || options.getState().status === 'waiting'
+        if (running) {
+          indeed.runningSince ??= Date.now()
+          tui.requestRender()
+        } else {
+          indeed.runningSince = undefined
+        }
+      }, TICK_MS)
     },
     async stop(): Promise<void> {
       if (stopped) return
       stopped = true
+      if (ticker !== undefined) clearInterval(ticker)
+      ticker = undefined
+      if (onResize !== undefined) process.stdout.off('resize', onResize)
+      onResize = undefined
       removeInputListener?.()
       removeInputListener = undefined
       overlay?.hide()
       overlay = undefined
       if (started) tui.stop()
     },
-    refresh(): void {
-      if (started && !stopped) tui.requestRender()
+    refresh(force = false): void {
+      if (started && !stopped) tui.requestRender(force)
     },
     notify(text: string): void {
       process.stdout.write(`${text}\n`)
     },
     async askApproval(prompt: ApprovalPrompt, signal?: AbortSignal): Promise<'allowed-once' | 'rejected'> {
-      const detail = prompt.reason === undefined ? undefined : prompt.reason
-      const onAbort = (): void => {
-        closeOverlay()
-      }
+      const onAbort = (): void => { closeOverlaySettled() }
       signal?.addEventListener('abort', onAbort, { once: true })
       const choice = await runPrompt<'allowed-once' | 'rejected'>(settle => ({
+        maxHeight: 9,
         component: createChoicePrompt({
           title: `allow ${prompt.toolName}?`,
-          detail,
+          detail: prompt.reason,
           options: [
             { value: 'allowed-once', label: 'yes, run this call', description: undefined },
             { value: 'rejected', label: 'no, skip this call', description: undefined },
@@ -159,10 +262,7 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
           multiSelect: false,
           allowCustom: false,
           theme,
-          settle: (values) => {
-            const first = values?.[0]
-            settle(first === 'allowed-once' ? 'allowed-once' : 'rejected')
-          },
+          settle: values => settle(values?.[0] === 'allowed-once' ? 'allowed-once' : 'rejected'),
         }),
       }))
       signal?.removeEventListener('abort', onAbort)
@@ -170,9 +270,14 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
     },
     async askQuestions(request: QuestionPromptRequest, signal?: AbortSignal): Promise<readonly QuestionAnswerItem[]> {
       const answers: QuestionAnswerItem[] = []
+      let cancelled = false
       for (const question of request.questions) {
-        if (signal?.aborted === true) break
-        const options: PromptOption[] = question.options.map(option => ({
+        if (signal?.aborted === true || cancelled) {
+          cancelled = true
+          answers.push({ id: question.id, selected: [], custom: '(skipped)' })
+          continue
+        }
+        const promptOptions: PromptOption[] = question.options.map(option => ({
           value: option.label,
           label: option.label,
           description: option.description,
@@ -180,10 +285,11 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
         const title = question.header === undefined ? question.question : `${question.header} · ${question.question}`
         const custom = { value: '' }
         const picked = await runPrompt<readonly string[]>(settle => ({
+          maxHeight: promptOptions.length + 10,
           component: createChoicePrompt({
             title,
             detail: question.detail,
-            options,
+            options: promptOptions,
             multiSelect: question.multiSelect,
             allowCustom: true,
             theme,
@@ -193,17 +299,44 @@ export function createTuiKit(options: TuiKitOptions): TuiKit {
             },
           }),
         }))
-        const selected = picked ?? []
-        const typed = custom.value === '' ? undefined : custom.value
-        answers.push({ id: question.id, selected, custom: typed })
+        if (picked === undefined) {
+          cancelled = true
+          answers.push({ id: question.id, selected: [], custom: '(skipped)' })
+          continue
+        }
+        answers.push({
+          id: question.id,
+          selected: picked,
+          custom: custom.value === '' ? undefined : custom.value,
+        })
       }
       return answers
     },
     async pickSession(title: string, choices: readonly SessionChoice[]): Promise<string | undefined> {
       const picked = await runPrompt<readonly string[]>(settle => ({
+        maxHeight: Math.min(choices.length + 8, 24),
         component: createChoicePrompt({
           title,
-          detail: 'Enter resumes the highlighted session; Esc keeps the current one.',
+          detail: undefined,
+          options: choices.map(choice => ({
+            value: choice.value,
+            label: choice.label,
+            description: choice.description,
+          })),
+          multiSelect: false,
+          allowCustom: false,
+          theme,
+          settle: values => settle(values),
+        }),
+      }))
+      return picked?.[0]
+    },
+    async pickChoice(title: string, choices: readonly GenericChoice[], detail?: string): Promise<string | undefined> {
+      const picked = await runPrompt<readonly string[]>(settle => ({
+        maxHeight: Math.min(choices.length + 8, 24),
+        component: createChoicePrompt({
+          title,
+          detail,
           options: choices.map(choice => ({
             value: choice.value,
             label: choice.label,

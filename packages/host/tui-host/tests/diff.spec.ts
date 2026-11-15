@@ -12,9 +12,11 @@ describe('diffFromArguments', () => {
     ])
   })
 
-  it('shows whole-file writes as additions', () => {
-    const diff = diffFromArguments('write', JSON.stringify({ content: 'one\ntwo\n' }))
-    expect(diff).toEqual([{ kind: 'add', text: 'one' }, { kind: 'add', text: 'two' }])
+  it('keeps a whole-file write readable instead of a green wall', () => {
+    const big = Array.from({ length: 120 }, (_value, index) => `line ${String(index)}`).join('\n')
+    const diff = diffFromArguments('write', JSON.stringify({ content: big }))
+    expect(diff).toHaveLength(41)
+    expect(diff[40]).toEqual({ kind: 'hunk', text: '… 80 more lines written' })
   })
 
   it('returns nothing for a tool that carries no text pair', () => {
@@ -28,8 +30,7 @@ describe('diffFromArguments', () => {
   it('caps a huge argument diff', () => {
     const big = Array.from({ length: 200 }, (_value, index) => `line ${String(index)}`).join('\n')
     const diff = diffFromArguments('write', JSON.stringify({ content: big }))
-    expect(diff).toHaveLength(121)
-    expect(diff[diff.length - 1]).toEqual({ kind: 'hunk', text: '… 80 more diff lines' })
+    expect(diff[diff.length - 1]).toEqual({ kind: 'hunk', text: '… 160 more lines written' })
   })
 })
 
@@ -44,7 +45,9 @@ describe('diffFromOutput', () => {
     ])
   })
 
-  it('ignores ordinary output', () => {
+  it('ignores ordinary output that merely mentions diff markers', () => {
+    expect(diffFromOutput('the log says @@ retry and +++ build')).toEqual([])
+    expect(diffFromOutput('@@ -1,2 +1,2 @@\n kept only')).toEqual([])
     expect(diffFromOutput('tests passed')).toEqual([])
   })
 })

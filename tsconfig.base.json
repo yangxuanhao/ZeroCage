@@ -96,6 +96,8 @@
       "@deepseek-ai/dsh-experimental-claude-code-mods/examples/*": ["./packages/experimental/claude-code-mods/examples/*"],
       "@deepseek-ai/dsh/profile-boot": ["./apps/cli/src/profile-boot.ts"],
       "@deepseek-ai/pi-tui": ["./vendor/pi-tui/src"],
+      "@deepseek-ai/dsh-tool-subagent-control/list-agents": ["./packages/subagent/tool-subagent-control/src/list-agents.ts"],
+      "@deepseek-ai/dsh-tool-subagent-control/wait-agent": ["./packages/subagent/tool-subagent-control/src/wait-agent.ts"],
       "@deepseek-ai/dsh/lib/bin.js": ["./apps/cli/src/bin.ts"],
       "@deepseek-ai/dsh-browser-use": ["./packages/browser-use/browser-use/src/index.ts"],
       "@deepseek-ai/dsh-browser-use/types": ["./packages/browser-use/browser-use/src/types.ts"],

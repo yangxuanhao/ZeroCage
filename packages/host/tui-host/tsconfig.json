@@ -8,6 +8,17 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/loader" },
-    { "path": "../../client/tui-kit" }
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../client/tui-kit" },
+    { "path": "../../boot/cmdline" },
+    { "path": "../../core/agent" },
+    { "path": "../../core/agent-default-model" },
+    { "path": "../../core/session" },
+    { "path": "../../fs/fs" },
+    { "path": "../../interaction/user-approval" },
+    { "path": "../../interaction/user-questions" },
+    { "path": "../../llm/llm" },
+    { "path": "../../llm/token-meter" },
+    { "path": "../../session-query/session-query" }
   ]
 }

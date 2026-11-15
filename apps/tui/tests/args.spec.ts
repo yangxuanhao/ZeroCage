@@ -2,23 +2,41 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PROFILE, parseInvocation, resolveHome, ZEROCAGE_VERSION } from '../src/args.ts'
+import { DEFAULT_PROFILE, parseInvocation, resolveHome, USAGE, ZEROCAGE_VERSION } from '../src/args.ts'
 import { collectDoctorSections, formatDoctor, readJson } from '../src/doctor.ts'
 
 describe('parseInvocation', () => {
   it('defaults to booting the tui profile with no overlays', () => {
-    expect(parseInvocation([])).toEqual({ mode: 'run', profile: DEFAULT_PROFILE, patches: [], args: [], doctorTopic: undefined })
+    expect(parseInvocation([])).toEqual({
+      mode: 'run',
+      profile: DEFAULT_PROFILE,
+      patches: [],
+      args: [],
+      doctorTopic: undefined,
+      error: undefined,
+    })
   })
 
-  it('short-circuits version reporting', () => {
+  it('short-circuits version and help before any profile work', () => {
     expect(parseInvocation(['--version']).mode).toBe('version')
     expect(parseInvocation(['-v']).mode).toBe('version')
+    expect(parseInvocation(['--help']).mode).toBe('help')
+    expect(parseInvocation(['-h']).mode).toBe('help')
+    expect(parseInvocation(['help']).mode).toBe('help')
   })
 
-  it('reads doctor with an optional topic', () => {
+  it('reads doctor only as the leading subcommand, with an optional known topic', () => {
     expect(parseInvocation(['doctor'])).toMatchObject({ mode: 'doctor', doctorTopic: undefined })
     expect(parseInvocation(['doctor', 'model'])).toMatchObject({ mode: 'doctor', doctorTopic: 'model' })
-    expect(parseInvocation(['doctor', '--json']).doctorTopic).toBeUndefined()
+    expect(parseInvocation(['doctor', 'unknown']).doctorTopic).toBeUndefined()
+    // A task that mentions doctor is a task.
+    expect(parseInvocation(['fix the doctor page']).mode).toBe('run')
+  })
+
+  it('rejects a flag that lost its value instead of silently continuing', () => {
+    expect(parseInvocation(['--resume']).mode).toBe('error')
+    expect(parseInvocation(['--resume']).error).toContain('--resume')
+    expect(parseInvocation(['--model', '--plain']).mode).toBe('error')
   })
 
   it('collects patch overlays and a profile override', () => {
@@ -27,14 +45,19 @@ describe('parseInvocation', () => {
     expect(invocation.profile).toBe('web')
   })
 
-  it('drops flag values from the arguments handed to the tree, keeping the flags', () => {
+  it('hands every argument to the tree unchanged', () => {
     const invocation = parseInvocation(['--resume', 'session-1', '--plain', '--patch', 'x.yml'])
-    expect(invocation.args).toEqual(['--resume', '--plain', '--patch'])
-    expect(invocation.patches).toEqual(['x.yml'])
+    expect(invocation.args).toEqual(['--resume', 'session-1', '--plain', '--patch', 'x.yml'])
   })
 
   it('keeps positional arguments', () => {
     expect(parseInvocation(['read the file']).args).toEqual(['read the file'])
+  })
+
+  it('documents every flag in the usage text', () => {
+    for (const flag of ['--resume', '--model', '--plain', '--patch', '--profile', '--version', '--help', 'doctor']) {
+      expect(USAGE).toContain(flag)
+    }
   })
 })
 

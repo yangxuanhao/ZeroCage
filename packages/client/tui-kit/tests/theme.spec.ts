@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { createTheme, detectColorDepth } from '../src/theme.ts'
 import { contextPercent, formatCount } from '../src/status-bar.ts'
 import type { TuiViewState } from '../src/types.ts'
@@ -17,6 +17,7 @@ function stateWith(used: number, window: number): TuiViewState {
     currentTool: undefined,
     lastError: undefined,
     hint: undefined,
+    expandedIds: [],
   }
 }
 

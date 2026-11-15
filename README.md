@@ -1,77 +1,53 @@
-# DeepSeek Harness
+# ZeroCage
 
-English | [中文](README.zh.md)
+> Minimalist, high-contrast autonomous engineering agent in your terminal.
 
-DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
+ZeroCage is a terminal-first AI coding & engineering agent built on a modular Cordis plugin architecture and a custom alternate-screen TUI (`pi-tui`), designed for fast, distraction-free workflows.
 
-It is built on an **everything-is-a-plugin** architecture and powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512).
+## ✨ Highlights
 
-Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
+- **Minimalist High-Contrast UI**: Clean crimson, crisp white, and dark charcoal palette with zero visual clutter.
+- **Full Keyboard & Mouse Support**:
+  - Clickable tool-call and reasoning cards to expand/collapse details inline.
+  - Mouse wheel scrolling in both the transcript and interactive overlays.
+  - Interactive pickers (`/model`, `/resume`, `/approve`, `Ctrl+P` command palette) with **keyboard navigation**, **mouse click/wheel**, and **live type-to-filter** search.
+- **Interactive Command Palette (`Ctrl+P`)**: Instant access to all slash commands (`/model`, `/resume`, `/approve`, `/new`, `/clear`, `/sessions`, `/status`, `/budget`, `/stop`, `/help`).
+- **Session Persistence & Resume**: Save, list (`/sessions`), and resume (`/resume`) engineering sessions seamlessly.
+- **Granular Approval Policy (`/approve`)**: Switch between `ask` (confirm before tool execution) and `never` (autonomous execution).
+- **Context & Token Transparency (`/status`, `/budget`)**: Inspect system prompt assembly, tool schemas, and real-time context window usage.
 
-## Developer preview
+## 🚀 Quick Start
 
-DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
-
-Review the [safety notice](SAFETY.md) before running the project.
-
-## Run
-
-### Run from `npm`
-
-Install `Node.js`, then run:
-
-```sh
-npx @deepseek-ai/dsh web
-```
-
-The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it in the default browser for a local launch. An SSH launch only prints the host URL because the SSH client or editor owns the local forwarded address. Pass `--no-open` to run the server without opening a browser. See [Web UI guide](docs/user/guide/index.md).
-
-### Run from source
-
-To run from a repository checkout:
-
-```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+```bash
+# Install dependencies
 pnpm install
-pnpm run build
-pnpm dsh web
+
+# Run the TUI
+pnpm --filter @deepseek-ai/dsh-tui start
 ```
 
-`pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
+## ⌨️ Keybindings & Commands
 
-## Community and support
+| Shortcut / Command | Action |
+| --- | --- |
+| `Ctrl+P` | Open command palette |
+| `Ctrl+C` | Cancel current turn (press twice on empty input to exit) |
+| `Ctrl+D` | Exit ZeroCage |
+| `/model [name]` | Switch model (opens interactive picker if no argument) |
+| `/resume [id\|last\|pick]` | Resume a previous session |
+| `/approve [ask\|never]` | Set tool-call approval policy |
+| `/new` / `/clear` | Start a new session |
+| `/sessions` | List recent sessions |
+| `/status` | Show session & context stats |
+| `/budget` | Measure system prompt & token budget |
+| `/help` | Show command reference |
 
-- Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
-- Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to your plugin repository for discoverability.
-- Join <a href="https://discord.gg/4MrtZUhpxg">DeepSeek Harness Discord community</a>.
+## 🧪 Testing
 
-## Contributing
+```bash
+# Unit tests (tui-kit, tui-host, apps/tui)
+npx vitest run packages/client/tui-kit/tests/ packages/host/tui-host/tests/ apps/tui/tests/
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Development
-
-Start with the [development guide](docs/development.md) and [architecture documentation](docs/architecture.md).
-
-`pnpm run dev:web` builds, serves, and rebuilds client bundles on source edits in one terminal, and `make help` lists the matching Make targets for Web and Desktop; the guide's application commands section owns the full table.
-
-For agents, follow [AGENTS.md](AGENTS.md).
-
-## Citation
-
-```bibtex
-@misc{deepseek-harness2026,
-  title={DeepSeek Harness: Everything is a Plugin},
-  author={DeepSeek-AI},
-  year={2026},
-  publisher={GitHub},
-  howpublished={\url{https://github.com/deepseek-ai/deepseek-harness}},
-}
+# PTY end-to-end smoke test
+node --import tsx/esm apps/tui/tests/e2e/pty-smoke.e2e.ts
 ```
-
-## License
-
-[MIT](LICENSE)
-
-Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

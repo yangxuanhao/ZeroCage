@@ -291,6 +291,11 @@
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
+    { "path": "./vendor/pi-tui" },
+    { "path": "./packages/client/tui-kit" },
+    { "path": "./packages/host/tui-host" },
+    { "path": "./packages/bundle/tui-app" },
+    { "path": "./apps/tui" },
     { "path": "./packages/experimental/action-cards" },
     { "path": "./packages/experimental/creation-recommendations" },
     { "path": "./packages/experimental/plugin-recommendations" },

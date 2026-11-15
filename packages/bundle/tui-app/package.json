@@ -23,11 +23,14 @@
   "license": "MIT",
   "dsh": {
     "bundle": {
-      "patch": ["./cordis.patch.yml"]
+      "patch": [
+        "./cordis.patch.yml"
+      ]
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-tui-host": "workspace:*"
+    "@deepseek-ai/dsh-tui-host": "workspace:*",
+    "dsh-purge-community": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"

@@ -17,12 +17,13 @@ function stateOf(blocks: readonly ViewBlock[]): TuiViewState {
     currentTool: undefined,
     lastError: undefined,
     hint: undefined,
+    expandedIds: [],
   }
 }
 
 /** Render a state to plain lines at the given width. */
-function render(blocks: readonly ViewBlock[], width = 80, settleOnly = false): string[] {
-  const state = stateOf(blocks)
+function render(blocks: readonly ViewBlock[], width = 80, settleOnly = false, expandedIds: readonly string[] = []): string[] {
+  const state = { ...stateOf(blocks), expandedIds }
   return createTranscript({ getState: () => state, theme: createTheme('none'), settleOnly }).render(width)
 }
 
@@ -32,9 +33,7 @@ describe('createTranscript', () => {
       { kind: 'user', id: 'u1', turn: 1, text: 'hello there' },
       { kind: 'assistant', id: 'a1', turn: 1, text: 'hi', reasoning: '', streaming: false },
     ])
-    expect(lines.join('\n')).toContain('> you')
-    expect(lines.join('\n')).toContain('hello there')
-    expect(lines.join('\n')).toContain('● zero')
+    expect(lines.join('\n')).toContain('❯ hello there')
     expect(lines.join('\n')).toContain('hi')
   })
 
@@ -49,7 +48,75 @@ describe('createTranscript', () => {
     expect(render(empty)).toEqual([])
   })
 
+  it('drops the blank padding a command leaves at the end of its output', () => {
+    const blocks: ViewBlock[] = [{
+      kind: 'tool',
+      id: 't11',
+      turn: 1,
+      name: 'pwsh',
+      args: '{}',
+      status: 'ok',
+      output: 'a. zip  1024\r\nb. zip  2048\r\n\r\n\r\n\r\n\r\n',
+      diff: [],
+    }]
+    const lines = render(blocks, 80, false, ['t11'])
+    expect(lines.filter(line => line.trim() === '│').length).toBe(0)
+    expect(lines[lines.length - 1]).toContain('b. zip')
+  })
+
+  it('collapses a settled tool card to its header and reopens on request', () => {
+    const blocks: ViewBlock[] = [{
+      kind: 'tool',
+      id: 't9',
+      turn: 1,
+      name: 'pwsh',
+      args: '{"command":"ls"}',
+      status: 'ok',
+      output: 'a\nb\nc',
+      diff: [],
+    }]
+    const collapsed = render(blocks).join('\n')
+    expect(collapsed).toContain('pwsh')
+    expect(collapsed).toContain('▸')
+    expect(collapsed).not.toContain('a\nb')
+    const opened = render(blocks, 80, false, ['t9']).join('\n')
+    expect(opened).toContain('▾')
+    expect(opened).toContain('│ a')
+  })
+
+  it('keeps a running tool card open regardless of click state', () => {
+    const blocks: ViewBlock[] = [{
+      kind: 'tool',
+      id: 't10',
+      turn: 1,
+      name: 'pwsh',
+      args: '{"command":"sleep 1"}',
+      status: 'running',
+      output: '',
+      diff: [],
+    }]
+    expect(render(blocks).join('\n')).toContain('sleep 1')
+  })
+
+  it('shows one line for a settled reasoning trace', () => {
+    const blocks: ViewBlock[] = [{
+      kind: 'assistant',
+      id: 'a9',
+      turn: 1,
+      text: 'done',
+      reasoning: 'first think\nsecond think',
+      streaming: false,
+    }]
+    const collapsed = render(blocks).join('\n')
+    expect(collapsed).toContain('thinking')
+    expect(collapsed).not.toContain('first think')
+    const opened = render(blocks, 80, false, ['a9']).join('\n')
+    expect(opened).toContain('first think')
+    expect(opened).toContain('second think')
+  })
+
   it('renders a tool card with its diff and result tail', () => {
+    const output = Array.from({ length: 16 }, (_value, index) => `line${String(index + 1)}`).join('\n')
     const tool: ViewBlock[] = [{
       kind: 'tool',
       id: 't1',
@@ -57,16 +124,16 @@ describe('createTranscript', () => {
       name: 'edit',
       args: '{"file_path":"a.ts"}',
       status: 'ok',
-      output: 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8',
+      output,
       diff: [{ kind: 'add', text: 'new line' }, { kind: 'del', text: 'old line' }],
     }]
-    const text = render(tool).join('\n')
-    expect(text).toContain('● edit')
+    const text = render(tool, 200, false, ['t1']).join('\n')
+    expect(text).toContain('edit')
     expect(text).toContain('+ new line')
     expect(text).toContain('- old line')
-    expect(text).toContain('2 earlier lines')
-    expect(text).toContain('line8')
-    expect(text).not.toContain('line1')
+    expect(text).toContain('6 earlier lines')
+    expect(text).toContain('line16')
+    expect(text).not.toContain('line1\n')
   })
 
   it('marks a failed tool call and keeps its output', () => {
@@ -80,8 +147,8 @@ describe('createTranscript', () => {
       output: 'command not found',
       diff: [],
     }]
-    const text = render(tool).join('\n')
-    expect(text).toContain('✕ pwsh')
+    const text = render(tool, 200, false, ['t1']).join('\n')
+    expect(text).toContain('pwsh')
     expect(text).toContain('command not found')
   })
 
@@ -91,7 +158,7 @@ describe('createTranscript', () => {
   })
 
   it('counts CJK text by display columns, not code units', () => {
-    const cjk: ViewBlock[] = [{ kind: 'user', id: 'u1', turn: 1, text: '中文测试'.repeat(30) }]
+    const cjk: ViewBlock[] = [{ kind: 'user', id: 'u1', turn: 1, text: '涓枃娴嬭瘯'.repeat(30) }]
     for (const line of render(cjk, 40)) expect([...line].length).toBeLessThanOrEqual(40)
   })
 

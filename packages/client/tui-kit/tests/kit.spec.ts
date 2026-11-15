@@ -20,6 +20,7 @@ function stateOf(blocks: readonly ViewBlock[]): TuiViewState {
     currentTool: 'read',
     lastError: undefined,
     hint: 'type a task',
+    expandedIds: [],
   }
 }
 
@@ -34,12 +35,12 @@ interface Fixture {
 }
 
 /** Mount a kit over a virtual terminal in an isolated log directory. */
-function mount(): Fixture {
-  const terminal = new VirtualTerminal({ columns: 90, rows: 30 })
+function mount(status: TuiViewState['status'] = 'running', columns = 90): Fixture {
+  const terminal = new VirtualTerminal({ columns, rows: 30 })
   const submitted: string[] = []
   const interrupts: number[] = []
   const exits: number[] = []
-  let state = stateOf([])
+  let state = { ...stateOf([]), status }
   const kit = createTuiKit({
     getState: () => state,
     onSubmit: text => submitted.push(text),
@@ -57,7 +58,7 @@ function mount(): Fixture {
     interrupts,
     exits,
     setState(blocks: readonly ViewBlock[]): void {
-      state = stateOf(blocks)
+      state = { ...stateOf(blocks), status }
       kit.refresh()
     },
   }
@@ -68,11 +69,11 @@ describe('createTuiKit', () => {
     const fixture = mount()
     await fixture.terminal.waitForRender()
     const screen = fixture.terminal.viewport().join('\n')
-    expect(screen).toContain('zerocage')
-    expect(screen).toContain('deepseek-official/deepseek-flash')
+    expect(screen.toLowerCase()).toContain('autonomous engineering agent')
+    expect(screen).toContain('deepseek-flash deepseek-official')
     expect(screen).toContain('working')
-    expect(screen).toContain('ctx 1%')
-    expect(screen).toContain('[enter] send')
+    expect(screen).toContain('(1%)')
+    expect(screen).toContain('ctrl+p commands')
     await fixture.kit.stop()
   })
 
@@ -189,5 +190,129 @@ describe('createTuiKit', () => {
     fixture.terminal.sendInput('typed after stop')
     await fixture.terminal.waitForRender()
     expect(fixture.submitted).toEqual([])
+  })
+
+  it('treats a bare LF as Enter so automated input can send', async () => {
+    const fixture = mount()
+    await fixture.terminal.waitForRender()
+    fixture.terminal.sendInput('automated line')
+    fixture.terminal.sendInput('\n')
+    await fixture.terminal.waitForRender()
+    expect(fixture.submitted).toEqual(['automated line'])
+    await fixture.kit.stop()
+  })
+
+  it('lets an interrupt cancel an open prompt instead of swallowing it', async () => {
+    const fixture = mount()
+    await fixture.terminal.waitForRender()
+    const answer = fixture.kit.askApproval({ toolName: 'pwsh', reason: undefined })
+    await fixture.terminal.waitForRender()
+    fixture.terminal.sendInput('\x03')
+    await expect(answer).resolves.toBe('rejected')
+    expect(fixture.interrupts).toHaveLength(0)
+    await fixture.kit.stop()
+  })
+
+  it('exits on Ctrl+D with an empty editor only', async () => {
+    const fixture = mount()
+    await fixture.terminal.waitForRender()
+    fixture.terminal.sendInput('draft')
+    fixture.terminal.sendInput('\x04')
+    await fixture.terminal.waitForRender()
+    expect(fixture.exits).toHaveLength(0)
+    fixture.terminal.sendInput('\x15')
+    fixture.terminal.sendInput('\x04')
+    await fixture.terminal.waitForRender()
+    expect(fixture.exits).toHaveLength(1)
+    await fixture.kit.stop()
+  })
+
+  it('requires a second Ctrl+C to leave while idle', async () => {
+    const fixture = mount('idle')
+    await fixture.terminal.waitForRender()
+    fixture.terminal.sendInput('\x03')
+    await fixture.terminal.waitForRender()
+    expect(fixture.exits).toHaveLength(0)
+    fixture.terminal.sendInput('\x03')
+    await fixture.terminal.waitForRender()
+    expect(fixture.exits).toHaveLength(1)
+    await fixture.kit.stop()
+  })
+
+  it('shows a running indicator and elapsed time while working', async () => {
+    const fixture = mount()
+    fixture.setState([{ kind: 'user', id: 'u1', turn: 1, text: 'go' }])
+    await fixture.terminal.waitForRender()
+    await new Promise<void>(resolve => { setTimeout(resolve, 260) })
+    await fixture.terminal.waitForRender()
+    const screen = fixture.terminal.viewport().join('\n')
+    expect(screen).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u)
+    await fixture.kit.stop()
+  })
+
+  it('names the missing model instead of leaving the cell blank', async () => {
+    const terminal = new VirtualTerminal({ columns: 100, rows: 20 })
+    const state: TuiViewState = { ...stateOf([]), model: '', status: 'starting' }
+    const kit = createTuiKit({
+      getState: () => state,
+      onSubmit: () => {},
+      onInterrupt: () => {},
+      onExit: () => {},
+      terminal,
+      colorDepth: 'none',
+      logDirectory: mkdtempSync(join(tmpdir(), 'tui-kit-')),
+    })
+    kit.start()
+    await terminal.waitForRender()
+    expect(terminal.viewport().join('\n')).toContain('(connecting)')
+    await kit.stop()
+  })
+
+  it('keeps the state word visible on a narrow terminal', async () => {
+    const fixture = mount('running', 40)
+    await fixture.terminal.waitForRender()
+    const screen = fixture.terminal.viewport().join('\n')
+    expect(screen.toLowerCase()).toContain('zero · cage')
+    expect(screen).toContain('working')
+    expect(screen).not.toContain('out 340')
+    for (const line of fixture.terminal.viewport()) expect(line.length).toBeLessThanOrEqual(40)
+    await fixture.kit.stop()
+  })
+
+  it('opens a collapsed tool card when it is clicked', async () => {
+    const toggled: string[] = []
+    const terminal = new VirtualTerminal({ columns: 90, rows: 30 })
+    const blocks: ViewBlock[] = [{
+      kind: 'tool',
+      id: 'tool-1',
+      turn: 1,
+      name: 'pwsh',
+      args: '{"command":"ls"}',
+      status: 'ok',
+      output: 'a\nb',
+      diff: [],
+    }]
+    const state = { ...stateOf(blocks), status: 'idle' as const }
+    const kit = createTuiKit({
+      getState: () => state,
+      onSubmit: () => {},
+      onInterrupt: () => {},
+      onExit: () => {},
+      onToggleBlock: id => toggled.push(id),
+      terminal,
+      colorDepth: 'none',
+      logDirectory: mkdtempSync(join(tmpdir(), 'tui-kit-')),
+    })
+    kit.start()
+    await terminal.waitForRender()
+    // SGR left press at column 5, row 1 — transcript starts at the top row.
+    terminal.sendInput('\u001b[<0;5;1M')
+    await terminal.waitForRender()
+    // The release synthesizes a click for the same gesture; it must not toggle
+    // a second time.
+    terminal.sendInput('\u001b[<0;5;1m')
+    await terminal.waitForRender()
+    expect(toggled).toEqual(['tool-1'])
+    await kit.stop()
   })
 })

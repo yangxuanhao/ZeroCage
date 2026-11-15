@@ -136,7 +136,7 @@ export async function startSession(options: SessionRuntimeOptions): Promise<Sess
         // Only what the operator typed; instruction injections are model
         // context, not conversation turns.
         if (event.data.source.kind !== 'user') return
-        dispatch({ type: 'user', text: textOf(event.data), turn: event.data.turn })
+        dispatch({ type: 'user', text: textOf(event.data), turn: 0 })
         return
       case 'turn/start':
         dispatch({ type: 'status', status: 'running' })

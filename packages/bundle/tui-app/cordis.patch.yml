@@ -71,9 +71,49 @@
 - id: session-title-llm
   disabled: true
 
+# ── token economy ───────────────────────────────────────────────────────────
+#
+# R3's budget: a tool result over ~8 KB (or a few hundred lines) leaves the
+# context as a file, and only its head, tail, and the path stay inline.
+- id: spill-policy
+  config:
+    maxInlineTokens: 2000
+
+# Compact at 70% of the window and keep the last ~20k tokens verbatim, which is
+# roughly the last six turns of a coding session.
+- id: compaction-basic
+  config:
+    thresholdRatio: 0.7
+    retainTokens: 20000
+
+# Oversized tool results are pruned before the conversation compactor runs, so a
+# single huge listing cannot trigger a whole-session summary.
+- id: tool-result-pruner
+  config:
+    thresholdChars: 8192
+    headChars: 4096
+    tailChars: 1024
+
 # ── the terminal rows ───────────────────────────────────────────────────────
 
 - insert:
+    # The break-armour layer, mounted as a default bundle: prompt injection read
+    # from `$DSH_HOME/prompt-inject.md`, the boost tail, the capability protocol,
+    # and the refusal-retry middleware on `llm/stream`. Its host-source patches are
+    # not applied here — the gate defaults this profile ships already are that.
+    - id: zero-armour
+      name: 'dsh-purge-community'
+      inject: [systemPrompt, tools]
+      config:
+        enabled: true
+        autoRetry: true
+        retryMax: 3
+        capabilityProtocol: true
+        hooksDenyBypass: true
+        autoApplyOnStart: false
+        autoUpdateOnStart: false
+        verbose: false
+
     # Parses this app's flags from `cmdlineArgs` and publishes `tuiStartup`;
     # the host row below injects it, so Loader orders the two.
     - id: tui-startup

@@ -74,6 +74,11 @@ export interface TuiViewState {
   readonly lastError: string | undefined
   /** Short hint under the editor; the kit appends its own key hints. */
   readonly hint: string | undefined
+  /**
+   * Blocks the operator expanded by clicking. A settled tool call or a
+   * reasoning trace is collapsed to one line unless its id appears here.
+   */
+  readonly expandedIds: readonly string[]
 }
 
 /** An approval the host must surface and answer before the tool runs. */
@@ -117,6 +122,13 @@ export interface SessionChoice {
   readonly description: string | undefined
 }
 
+/** A choice offered in a general single-select picker. */
+export interface GenericChoice {
+  readonly value: string
+  readonly label: string
+  readonly description: string | undefined
+}
+
 /** The rendering kit the host drives. */
 export interface TuiKit {
   /** Take over the terminal and render the first frame. */
@@ -124,13 +136,15 @@ export interface TuiKit {
   /** Restore the terminal; safe to call twice. */
   stop(): Promise<void>
   /** Ask for a re-render after the host changed its view state. */
-  refresh(): void
+  refresh(force?: boolean): void
   /** Ask the operator to allow one tool call. Resolves `rejected` when unanswered. */
   askApproval(prompt: ApprovalPrompt, signal?: AbortSignal): Promise<'allowed-once' | 'rejected'>
   /** Ask the operator the model's questions. Resolves an empty list when unanswered. */
   askQuestions(request: QuestionPromptRequest, signal?: AbortSignal): Promise<readonly QuestionAnswerItem[]>
   /** Show a session picker. Resolves the chosen id, or undefined when cancelled. */
   pickSession(title: string, choices: readonly SessionChoice[]): Promise<string | undefined>
+  /** Show a generic choice picker (e.g. for models, approval policy, etc). */
+  pickChoice(title: string, choices: readonly GenericChoice[], detail?: string): Promise<string | undefined>
   /** Print a line to the terminal without taking over rendering (used before start). */
   notify(text: string): void
 }
@@ -145,6 +159,12 @@ export interface TuiKitOptions {
   readonly onInterrupt: () => void
   /** Ctrl+D on an empty editor, or the `/exit` command. */
   readonly onExit: () => void
+  /** A click landed on a transcript block; the host flips its expanded state. */
+  readonly onToggleBlock?: (id: string) => void
+  /** Slash commands offered by the composer's `/` menu. */
+  readonly getCommands?: () => readonly { readonly name: string; readonly description: string }[]
+  /** Base directory for the composer's `@` file picker; defaults to the process cwd. */
+  readonly completionRoot?: string
   /** Working directory for pi-tui's per-session log file; defaults to the OS temp directory. */
   readonly logDirectory?: string
   /** Force a render depth; defaults to detection from the environment. */
@@ -155,3 +175,13 @@ export interface TuiKitOptions {
 
 /** Color capability tiers the theme degrades through. */
 export type ColorDepth = 'truecolor' | 'ansi256' | 'ansi16' | 'none'
+
+/** What a click needs from the transcript: which block owns a rendered row. */
+export interface HittableTranscript {
+  /**
+   * Resolve a content row (0-based, scroll offset already applied).
+   * @param row - row index inside the rendered transcript.
+   * @returns the block id at that row, or undefined for a separator.
+   */
+  blockAtRow(row: number): string | undefined
+}

@@ -13,13 +13,13 @@ import type {} from '@deepseek-ai/dsh-cmdline'
 /** Parsed terminal flags. */
 export interface TuiStartupOptions {
   /** Session id to resume. */
-  readonly resume: string | undefined
+  resume?: string
   /** `provider/model` or a bare model id. */
-  readonly model: string | undefined
+  model?: string
   /** Print plain lines instead of taking over the terminal. */
-  readonly plain: boolean
+  plain: boolean
   /** Print usage instead of starting a conversation. */
-  readonly help: boolean
+  help: boolean
 }
 
 /** Stable Cordis plugin name. */
@@ -55,7 +55,12 @@ function valueAfter(args: readonly string[], flag: string): string | undefined {
   const index = args.indexOf(flag)
   if (index === -1) return undefined
   const value = args[index + 1]
-  return value === undefined || value.startsWith('--') ? undefined : value
+  if (value === undefined || value.startsWith('-')) {
+    // Silently dropping the value would open a new session while the operator
+    // believes they resumed one.
+    throw new Error(`${flag} 需要一个值；用 \`zerocage --help\` 看用法`)
+  }
+  return value
 }
 
 /**
@@ -65,14 +70,15 @@ function valueAfter(args: readonly string[], flag: string): string | undefined {
  *   flags (`--patch`) stay available.
  */
 export function parseTuiArgs(args: readonly string[]): TuiStartupOptions {
+  const resume = valueAfter(args, '--resume')
+  const model = valueAfter(args, '--model')
   return {
-    resume: valueAfter(args, '--resume'),
-    model: valueAfter(args, '--model'),
+    ...resume === undefined ? {} : { resume },
+    ...model === undefined ? {} : { model },
     plain: args.includes('--plain'),
     help: args.includes('--help') || args.includes('-h'),
   }
 }
-
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Parsed terminal flags, provided before the host row mounts. */
@@ -85,18 +91,19 @@ declare module '@deepseek-ai/cordis' {
  * @param ctx - plugin context carrying the launcher's argument snapshot.
  * @param config - static override from the profile patch; flags win.
  */
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, config: TuiStartupOptions): void {
   const args = ctx.cmdlineArgs?.get() ?? []
   const parsed = parseTuiArgs(args)
+  const resume = parsed.resume ?? config.resume
+  const model = parsed.model ?? config.model
   ctx.provide('tuiStartup', {
-    resume: parsed.resume ?? config.resume,
-    model: parsed.model ?? config.model,
+    ...resume === undefined ? {} : { resume },
+    ...model === undefined ? {} : { model },
     plain: parsed.plain || config.plain,
     help: parsed.help || config.help,
   })
-  if (parsed.help) {
+  if (parsed.help || config.help) {
     process.stdout.write(`${USAGE}\n`)
     ctx.get('appExit')?.(0)
-    return
   }
 }

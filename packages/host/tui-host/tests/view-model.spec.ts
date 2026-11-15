@@ -100,12 +100,29 @@ describe('createViewModel', () => {
     expect(state.lastError).toBe('provider down')
   })
 
+  it('derives a title from the first prompt and clears the queue', () => {
+    const state = fold([
+      { type: 'queued', texts: ['second'] },
+      { type: 'user', text: 'merge   the duplicate\ntime helpers', turn: 1 },
+    ])
+    expect(state.title).toBe('merge the duplicate time helpers')
+    expect(state.queued).toEqual([])
+  })
+
+  it('drops an assistant block that produced nothing', () => {
+    const state = fold([
+      { type: 'stream-start', turn: 1, step: 1 },
+      { type: 'stream-end' },
+    ])
+    expect(state.blocks).toEqual([])
+  })
+
   it('keeps the transcript bounded', () => {
     const model = createViewModel()
-    for (let turn = 0; turn < 450; turn++) model.dispatch({ type: 'notice', level: 'info', text: `n${String(turn)}` })
-    expect(model.state.blocks).toHaveLength(400)
+    for (let turn = 0; turn < 2100; turn++) model.dispatch({ type: 'notice', level: 'info', text: `n${String(turn)}` })
+    expect(model.state.blocks).toHaveLength(2000)
     const last = model.state.blocks[model.state.blocks.length - 1]
-    expect(last?.kind === 'notice' && last.text).toBe('n449')
+    expect(last?.kind === 'notice' && last.text).toBe('n2099')
   })
 
   it('returns a new snapshot object only when something changed', () => {

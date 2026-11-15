@@ -1,5 +1,8 @@
 packages:
   - vendor/*
+  # Third-party plugin bundles carried as source (dsh-purge): they publish their
+  # own prebuilt lib/ and keep their upstream LICENSE/NOTICE files.
+  - third_party/*
   - packages/*/*
   # The Landlock launcher is developed with its harness consumers but keeps
   # its native build and publication scripts under native/system.

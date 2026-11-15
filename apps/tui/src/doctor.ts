@@ -46,14 +46,6 @@ function stringArrayAt(value: unknown, keys: readonly string[]): readonly string
   return cursor.filter((entry): entry is string => typeof entry === 'string')
 }
 
-/** Read the `version` field of an installed package manifest. */
-function packageVersion(installedPackagesRoot: string, name: string): string {
-  const manifest = readJson(join(installedPackagesRoot, name, 'package.json'))
-  if (typeof manifest !== 'object' || manifest === null) return 'not installed'
-  const version = Reflect.get(manifest, 'version')
-  return typeof version === 'string' ? version : 'unknown'
-}
-
 /** Read the harness core version from the CLI package that owns its `dsh` bin. */
 function coreVersion(installRoot: string): string {
   const manifest = readJson(join(installRoot, 'apps', 'cli', 'package.json'))
@@ -80,7 +72,6 @@ export interface DoctorOptions {
 
 /** Collect the four sections. */
 export function collectDoctorSections(options: DoctorOptions): readonly DoctorSection[] {
-  const modules = join(options.installRoot, 'node_modules', '@deepseek-ai')
   const profileManifest = readJson(join(options.profileDir, 'package.json'))
   const bundles = stringArrayAt(profileManifest, ['dsh', 'profile', 'bundles'])
   const settings = readJson(join(options.home, 'settings.json'))

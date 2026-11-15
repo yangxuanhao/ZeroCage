@@ -19,6 +19,7 @@ This file covers the manifest, the local-modification log, and the procedure for
 | `timer/` | `@deepseek-ai/cordis-plugin-timer` | `@cordisjs/plugin-timer` | 1.1.4 | https://github.com/cordiverse/cordis (`packages/timer`) | `01b396240ce47cf2779c40af9bc445bb748fe112` |
 | `hmr/` | `@deepseek-ai/cordis-plugin-hmr` | `@cordisjs/plugin-hmr` | 1.0.15 | https://github.com/cordiverse/cordis (`packages/hmr`) | `ed8a7755c26a27a72064a21dea036ad1d1d6833c` |
 | `logger-console/` | `@deepseek-ai/cordis-plugin-logger-console` | `@cordisjs/plugin-logger-console` | 1.0.0 | https://github.com/cordiverse/cordis (`packages/logger-console`) | `01b396240ce47cf2779c40af9bc445bb748fe112` |
+| `pi-tui/` | `@deepseek-ai/pi-tui` | `@earendil-works/pi-tui` | 1.5.2 | https://github.com/earendil-works/pi | `b4afdddf44e059c67ccf5097e5317d913521b470` |
 
 Third-party dependencies of the vendored packages stay on npm: `@standard-schema/spec`, `js-yaml`, `chokidar`, `picomatch`, `@babel/code-frame`, `supports-color`, `node-addon-require-builtin`.
 

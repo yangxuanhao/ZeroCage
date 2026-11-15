@@ -17,7 +17,7 @@ export class VirtualTerminal implements Terminal {
   private inputHandler: ((data: string) => void) | undefined
   private resizeHandler: (() => void) | undefined
 
-  constructor(private readonly dimensions: { columns: number; rows: number } = { columns: 80, rows: 24 }) {
+  constructor(dimensions: { columns: number; rows: number } = { columns: 80, rows: 24 }) {
     this.xterm = new XtermTerminal({ cols: dimensions.columns, rows: dimensions.rows, disableStdin: true, allowProposedApi: true })
   }
 
